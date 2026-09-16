@@ -25,6 +25,12 @@ public class ExceptionController extends BaseController {
     }
 
 
+    @ExceptionHandler(RuntimeException.class)
+    public ApiResponse<Void> handleRuntimeException(RuntimeException ex) {
+        log.error("Runtime exception occurred: {}", ex.getMessage());
+        return error(ex.getMessage());
+    }
+
     private ApiResponse<Void> createFieldErrorResponse(BindingResult bindingResult) {
         String errorMessage = bindingResult.getFieldErrors()
                 .stream()
