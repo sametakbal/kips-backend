@@ -1,5 +1,6 @@
 package com.akbal.kips.be.dto.product.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Digits;
@@ -12,6 +13,12 @@ import java.math.BigDecimal;
 
 @Data
 public class ProductRequest {
+
+    @Size(max = 64)
+    private String sku;
+
+    @Valid
+    private ProductMetadata metadata;
 
     @NotBlank
     @Size(max = 255)

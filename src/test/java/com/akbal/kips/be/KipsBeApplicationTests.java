@@ -111,6 +111,8 @@ class KipsBeApplicationTests {
         var admin = register(true);
         var customer = register(false);
         var unrelated = register(false);
+        request("POST", PRODUCTS, Map.of("name", "No initial stock", "price", 9.95, "categoryId", 2),
+                admin.accessToken(), 400);
         var productId = createProduct(admin, 3);
 
         request("PUT", "/api/v1/cart/items/" + productId, Map.of("quantity", 4), customer.accessToken(), 200);
@@ -128,6 +130,10 @@ class KipsBeApplicationTests {
         assertThat(order.get("summary").get("total").decimalValue()).isEqualByComparingTo("19.90");
         assertThat(checkout(customer, "retry-key", 200)).isEqualTo(order);
         assertThat(stock(productId, admin)).isEqualTo(1);
+        request("PUT", PRODUCTS + "/" + productId, product("Stale catalog edit", 3), admin.accessToken(), 200);
+        request("PUT", PRODUCTS + "/" + productId, Map.of("name", "Catalog edit", "price", 9.95, "categoryId", 2),
+                admin.accessToken(), 200);
+        assertThat(stock(productId, admin)).isEqualTo(1);
         assertThat(node(request("GET", "/api/v1/cart", null, customer.accessToken(), 200))
                 .get("data").get("items").size()).isZero();
 
@@ -139,10 +145,155 @@ class KipsBeApplicationTests {
     }
 
     @Test
+    void retriesStockAdjustmentsWithoutApplyingTheDeltaOrAuditTwice() throws Exception {
+        var admin = register(true);
+        var id = createProduct(admin, 5);
+        var adjustment = Map.of("delta", -2, "reason", "Damaged units");
+        request("POST", stockPath(id), adjustment, admin.accessToken(), 400);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> adjustStock(id, admin, "damage", adjustment, 200));
+            var second = executor.submit(() -> adjustStock(id, admin, "damage", adjustment, 200));
+            assertThat(first.get().get("stock").asInt()).isEqualTo(3);
+            assertThat(second.get().get("stock").asInt()).isEqualTo(3);
+        }
+        adjustStock(id, admin, "damage", Map.of("delta", -1, "reason", "Damaged units"), 409);
+        adjustStock(id, admin, "damage", Map.of("delta", -2, "reason", "Different reason"), 409);
+        adjustStock(id, admin, "recount", Map.of("delta", 1, "reason", "Recount"), 200);
+        assertThat(adjustStock(id, admin, "damage", adjustment, 200).get("stock").asInt()).isEqualTo(3);
+        assertThat(stock(id, admin)).isEqualTo(4);
+        assertThat(jdbc.sql("""
+                SELECT count(*) FROM staff_audit_event
+                WHERE action = 'STOCK_ADJUSTED' AND target_type = 'PRODUCT' AND target_id = :id
+                """).param("id", id).query(Long.class).single()).isEqualTo(2L);
+    }
+
+    @Test
     void publishesOpenApi() throws Exception {
         var document = node(request("GET", "/v3/api-docs", null, null, 200));
         assertThat(document.get("paths").has(CHECKOUT)).isTrue();
         assertThat(document.get("components").get("securitySchemes").has("bearerAuth")).isTrue();
+    }
+
+    @Test
+    void managesProductFamiliesAndSearchesSellableVariantsWithoutChangingStockOrSku() throws Exception {
+        var admin = register(true);
+        var customer = register(false);
+        var families = "/api/v1/admin/product-families";
+        var code = "shirt-" + UUID.randomUUID().toString().substring(0, 8);
+        var familyBody = Map.of("code", code, "name", "Linen shirt");
+        request("POST", families, familyBody, customer.accessToken(), 403);
+        var family = node(request("POST", families, familyBody, admin.accessToken(), 201)).get("data");
+        long familyId = family.get("id").asLong();
+        request("POST", families, familyBody, admin.accessToken(), 409);
+        assertThat(node(request("GET", "/api/v1/product-families/" + familyId, null, customer.accessToken(), 200))
+                .get("data").get("code").asString()).isEqualTo(code.toUpperCase(java.util.Locale.ROOT));
+
+        var sku = code + "-S";
+        var details = Map.of("brand", "Kips", "countryOfOrigin", "TR", "condition", "NEW",
+                "variantOptions", Map.of("size", "S", "color", "Blue"), "vatRate", 20,
+                "attributes", Map.of("material", "linen"), "imageUrls", List.of("https://example.test/shirt.jpg"),
+                "packageDimensions", Map.of("lengthMm", 280, "weightGrams", 250));
+        var metadata = Map.of("familyId", familyId, "gtin", "4006381333931", "details", details);
+        var variant = Map.of("name", "Linen shirt blue S", "price", 9.95, "stock", 7,
+                "categoryId", 2, "sku", sku, "metadata", metadata);
+        var created = node(request("POST", PRODUCTS, variant, admin.accessToken(), 200)).get("data");
+        long id = created.get("id").asLong();
+        assertThat(created.get("sku").asString()).isEqualTo(sku.toUpperCase(java.util.Locale.ROOT));
+        request("POST", PRODUCTS, variant, admin.accessToken(), 409);
+
+        var medium = Map.of("name", "Linen shirt blue M", "price", 9.95, "stock", 8,
+                "categoryId", 2, "sku", code + "-M", "metadata", Map.of("familyId", familyId, "details",
+                        Map.of("variantOptions", Map.of("size", "M", "color", "Blue"))));
+        request("POST", PRODUCTS, medium, admin.accessToken(), 200);
+        request("POST", PRODUCTS, Map.of("name", "Duplicate selection", "price", 9.95, "stock", 1,
+                "categoryId", 2, "metadata", Map.of("familyId", familyId, "details",
+                        Map.of("variantOptions", Map.of("color", "Blue", "size", "S")))), admin.accessToken(), 409);
+        request("POST", PRODUCTS, Map.of("name", "Duplicate GTIN", "price", 9.95, "stock", 1,
+                "categoryId", 2, "metadata", Map.of("gtin", "04006381333931")), admin.accessToken(), 409);
+
+        var matches = node(request("GET", PRODUCTS + "?familyId=" + familyId + "&categoryId=2&q=SHIRT&sort=sku,asc",
+                null, customer.accessToken(), 200)).get("data");
+        assertThat(matches.size()).isEqualTo(2);
+        var exact = node(request("GET", PRODUCTS + "?sku=" + sku + "&gtin=04006381333931",
+                null, customer.accessToken(), 200)).get("data");
+        assertThat(exact.size()).isEqualTo(1);
+        assertThat(exact.get(0).get("metadata").get("details").get("brand").asString()).isEqualTo("Kips");
+
+        var metadataPath = "/api/v1/admin/products/" + id + "/metadata";
+        request("PUT", metadataPath, Map.of("gtin", "4006381333932"), admin.accessToken(), 400);
+        request("PUT", metadataPath, Map.of("details", Map.of("imageUrls", List.of("file:///a.jpg"))),
+                admin.accessToken(), 400);
+        request("PUT", metadataPath, Map.of("familyId", Long.MAX_VALUE), admin.accessToken(), 404);
+        request("PUT", metadataPath, metadata, admin.accessToken(), 200);
+        assertThat(stock(id, admin)).isEqualTo(7);
+        var updated = node(request("PUT", PRODUCTS + "/" + id, product("Legacy edit", 7), admin.accessToken(), 200))
+                .get("data");
+        assertThat(updated.get("metadata").get("gtin").asString()).isEqualTo("4006381333931");
+        request("PUT", PRODUCTS + "/" + id, Map.of("name", "Renamed", "price", 9.95, "stock", 7,
+                "categoryId", 2, "sku", "different-sku"), admin.accessToken(), 409);
+        request("DELETE", families + "/" + familyId, null, admin.accessToken(), 409);
+    }
+
+    @Test
+    void managesMarketplaceListingsByProductChannelSellerAndMarket() throws Exception {
+        var admin = register(true);
+        var customer = register(false);
+        long id = createProduct(admin, 4);
+        long otherId = createProduct(admin, 6);
+        var base = "/api/v1/admin/products/" + id + "/marketplace-listings";
+        var sku = "market-" + UUID.randomUUID().toString().substring(0, 8);
+        var body = Map.of("channelSku", sku, "externalCatalogId", "external-catalog-id",
+                "categoryReference", "123", "productType", "SHIRT", "currency", "TRY",
+                "salePrice", 90, "listPrice", 110, "channelAttributes", Map.of("values", List.of(11, 22)));
+        var amazon = base + "/AMAZON?account=retail&market=tr";
+        request("GET", base, null, customer.accessToken(), 403);
+        request("PUT", amazon, body, customer.accessToken(), 403);
+        var created = node(request("PUT", amazon, body, admin.accessToken(), 200)).get("data");
+        var retry = node(request("PUT", base + "/AMAZON?account=RETAIL&market=TR", body, admin.accessToken(), 200))
+                .get("data");
+        assertThat(retry).isEqualTo(created);
+        for (var channel : List.of("HEPSIBURADA", "TRENDYOL", "N11")) {
+            request("PUT", base + "/" + channel + "?account=retail&market=tr", body, admin.accessToken(), 200);
+        }
+        var hepsiburada = base + "/HEPSIBURADA?account=retail&market=tr";
+        assertThat(node(request("PUT", hepsiburada, body, admin.accessToken(), 200)).get("data")
+                .get("channelSku").asString()).isEqualTo(sku.toUpperCase(java.util.Locale.ROOT));
+        request("PUT", "/api/v1/admin/products/" + otherId + "/marketplace-listings/HEPSIBURADA?account=retail&market=tr",
+                Map.of("channelSku", sku.toUpperCase(java.util.Locale.ROOT)), admin.accessToken(), 409);
+        request("PUT", hepsiburada, Map.of("channelSku", "SKU WITH SPACE"), admin.accessToken(), 400);
+        request("PUT", "/api/v1/admin/products/" + otherId + "/marketplace-listings/AMAZON?account=retail&market=tr",
+                body, admin.accessToken(), 409);
+        request("PUT", base + "/AMAZON?account=retail&market=DE", body, admin.accessToken(), 200);
+        request("PUT", amazon, Map.of("channelSku", sku, "salePrice", 40), admin.accessToken(), 400);
+        request("PUT", amazon, Map.of("channelSku", sku, "salePrice", 40, "listPrice", 20, "currency", "TRY"),
+                admin.accessToken(), 400);
+        var listings = node(request("GET", base, null, admin.accessToken(), 200)).get("data");
+        assertThat(listings.size()).isEqualTo(5);
+        assertThat(listings.get(0).get("channelAttributes").get("values").get(1).asInt()).isEqualTo(22);
+        request("DELETE", amazon, null, admin.accessToken(), 200);
+        request("DELETE", amazon, null, admin.accessToken(), 200);
+        assertThat(node(request("GET", base, null, admin.accessToken(), 200)).get("data").size()).isEqualTo(4);
+        assertThat(stock(id, admin)).isEqualTo(4);
+        assertThat(node(request("GET", PRODUCTS + "/" + id, null, customer.accessToken(), 200))
+                .get("data").get("price").decimalValue()).isEqualByComparingTo("9.95");
+    }
+
+    @Test
+    void validatesAndPersistsMarketplacePricesAtCurrencyPrecision() throws Exception {
+        var admin = register(true);
+        var id = createProduct(admin, 2);
+        var base = "/api/v1/admin/products/" + id + "/marketplace-listings";
+        var listing = base + "/AMAZON?account=retail&market=jp";
+        request("PUT", listing, Map.of("channelSku", "precision-" + id, "currency", "JPY", "salePrice", 100.50),
+                admin.accessToken(), 400);
+        request("PUT", listing, Map.of("channelSku", "precision-" + id, "currency", "JPY", "salePrice", 100),
+                admin.accessToken(), 200);
+        request("PUT", listing, Map.of("channelSku", "precision-" + id, "currency", "TRY", "salePrice", 100,
+                "listPrice", 100.001), admin.accessToken(), 400);
+        request("PUT", listing, Map.of("channelSku", "precision-" + id, "currency", "KWD", "salePrice", 100.125),
+                admin.accessToken(), 200);
+        assertThat(node(request("GET", base, null, admin.accessToken(), 200)).get("data").get(0)
+                .get("salePrice").decimalValue()).isEqualByComparingTo("100.125");
     }
 
     @Test
@@ -167,8 +318,7 @@ class KipsBeApplicationTests {
                 .contains("ROLE_USER", "ROLE_FULFILLMENT_STAFF").doesNotContain("ROLE_CATALOG_STAFF");
         request("DELETE", target + "&role=ROLE_CATALOG_STAFF", null, admin.accessToken(), 200);
         request("PATCH", contentPath(productId), content, employee.accessToken(), 403);
-        request("POST", stockPath(productId), Map.of("delta", 1, "reason", "Counted one more"),
-                employee.accessToken(), 200);
+        adjustStock(productId, employee, "count", Map.of("delta", 1, "reason", "Counted one more"), 200);
         request("GET", "/api/v1/cart", null, employee.accessToken(), 200);
 
         var events = jdbc.sql("""
@@ -206,9 +356,9 @@ class KipsBeApplicationTests {
         request("PATCH", contentPath(id), content, warehouse.accessToken(), 403);
         request("PUT", PRODUCTS + "/" + id, product("Cannot save", 1), warehouse.accessToken(), 403);
         request("POST", stockPath(id), Map.of("delta", 1, "reason", "Catalog denied"), catalog.accessToken(), 403);
-        request("POST", stockPath(id), Map.of("delta", 1), warehouse.accessToken(), 400);
-        request("POST", stockPath(id), Map.of("delta", -6, "reason", "Invalid count"), warehouse.accessToken(), 409);
-        request("POST", stockPath(id), Map.of("delta", -2, "reason", "Damaged units"), warehouse.accessToken(), 200);
+        adjustStock(id, warehouse, "missing-reason", Map.of("delta", 1), 400);
+        adjustStock(id, warehouse, "invalid", Map.of("delta", -6, "reason", "Invalid count"), 409);
+        adjustStock(id, warehouse, "damage", Map.of("delta", -2, "reason", "Damaged units"), 200);
         assertThat(stock(id, admin)).isEqualTo(3);
 
         var audit = jdbc.sql("""
@@ -222,8 +372,8 @@ class KipsBeApplicationTests {
         var warehouseCart = node(request("GET", "/api/v1/cart", null, warehouse.accessToken(), 200));
         assertThat(warehouseCart.get("data").get("items").size()).isZero();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var adjustment = executor.submit(() -> request("POST", stockPath(id),
-                    Map.of("delta", 2, "reason", "Found two units"), warehouse.accessToken(), 200));
+            var adjustment = executor.submit(() -> adjustStock(id, warehouse, "found",
+                    Map.of("delta", 2, "reason", "Found two units"), 200));
             var order = executor.submit(() -> checkout(catalog, "concurrent-adjustment", 200));
             adjustment.get();
             order.get();
@@ -349,6 +499,12 @@ class KipsBeApplicationTests {
 
     private String stockPath(long id) {
         return "/api/v1/staff/inventory/products/" + id + "/adjust";
+    }
+
+    private JsonNode adjustStock(long id, Account actor, String key, Object payload, int status) throws Exception {
+        var request = baseRequest(stockPath(id), actor.accessToken()).header("Idempotency-Key", key)
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload))).build();
+        return node(send(request, status)).get("data");
     }
 
     private Account register(boolean admin) throws Exception {

@@ -6,6 +6,133 @@ Kips Shop is a Spring Boot e-commerce REST backend. It provides JWT authenticati
 
 Java 25, Spring Boot 4.1.2, Gradle 9.8.1, PostgreSQL 15, Flyway, Redis 7, and SpringDoc OpenAPI.
 
+## Architecture
+
+### Application and infrastructure
+
+```mermaid
+flowchart TB
+    Client["Storefront or staff client"] --> Security["Spring Security and JWT filter"]
+    Security --> Api["REST controllers"]
+
+    subgraph Services["Spring Boot application services"]
+        Catalog["Catalog and marketplace listings"]
+        Inventory["Inventory adjustments"]
+        Commerce["Cart, checkout, and orders"]
+        Staff["Authentication, roles, and permissions"]
+    end
+
+    Api --> Catalog
+    Api --> Inventory
+    Api --> Commerce
+    Api --> Staff
+    Catalog --> Jpa["Spring Data JPA"]
+    Inventory --> Jpa
+    Staff --> Jpa
+    Commerce --> Jdbc["JdbcClient"]
+    Inventory --> Jdbc
+    Staff --> Jdbc
+    Security -->|Load current authorities| Jpa
+    Jpa --> Postgres[("PostgreSQL")]
+    Jdbc --> Postgres
+    Catalog -->|Category tree cache| Redis[("Redis")]
+    Flyway["Flyway migrations"] --> Postgres
+```
+
+### Catalog and order data
+
+Each `PRODUCT` row represents a sellable SKU. A marketplace listing belongs to one SKU and is scoped by channel, seller account, and market. Order items retain the product name and unit price captured at checkout.
+
+```mermaid
+erDiagram
+    PRODUCT_CATEGORY |o..o{ PRODUCT_CATEGORY : "parents"
+    PRODUCT_CATEGORY |o..o{ PRODUCT : "classifies"
+    PRODUCT_FAMILY |o..o{ PRODUCT : "groups variants"
+    PRODUCT ||..o{ MARKETPLACE_LISTING : "has channel listings"
+    APP_USER ||--o{ CART_ITEM : "owns"
+    PRODUCT ||--o{ CART_ITEM : "appears in"
+    APP_USER ||..o{ SHOP_ORDER : "places"
+    SHOP_ORDER ||--|{ SHOP_ORDER_ITEM : "contains"
+    PRODUCT ||--o{ SHOP_ORDER_ITEM : "is referenced by"
+
+    PRODUCT_FAMILY {
+        bigint id PK
+        string code UK
+        string name
+    }
+    PRODUCT {
+        bigint id PK
+        string sku UK
+        string gtin
+        bigint family_id FK
+        bigint category_id FK
+        decimal price
+        int stock
+        jsonb catalog_details
+    }
+    MARKETPLACE_LISTING {
+        bigint id PK
+        bigint product_id FK
+        string channel
+        string account_key
+        string market_key
+        string channel_sku
+        string currency
+        decimal sale_price
+    }
+    SHOP_ORDER_ITEM {
+        bigint order_id PK, FK
+        bigint product_id PK, FK
+        string product_name
+        decimal unit_price
+        int quantity
+    }
+```
+
+### Checkout and stock
+
+```mermaid
+sequenceDiagram
+    participant Client as Customer
+    participant API as Checkout API
+    participant DB as PostgreSQL
+
+    Client->>API: POST /api/v1/orders/checkout with Idempotency-Key
+    API->>DB: Begin transaction and lock customer row
+    API->>DB: Find order by customer and key
+    alt Key already used
+        DB-->>API: Existing order and item prices
+        API->>DB: Commit without changing stock
+        API-->>Client: 200 Existing order
+    else New checkout
+        API->>DB: Load cart and lock product rows
+        alt Cart empty or stock unavailable
+            API->>DB: Roll back transaction
+            API-->>Client: 409 Conflict
+        else Stock available
+            API->>DB: Decrement stock and save order with item price snapshots
+            Note over API,DB: Order uses the LOCAL_TEST payment method
+            API->>DB: Clear cart and commit
+            API-->>Client: 200 New order
+        end
+    end
+```
+
+### Request authorization
+
+```mermaid
+flowchart TB
+    Request["Protected API request"] --> Token{"Valid access token?"}
+    Token -->|No| Unauthorized["401 Unauthorized"]
+    Token -->|Yes| Roles["Load user and current roles from PostgreSQL"]
+    Roles --> Account{"Account found?"}
+    Account -->|No| Unauthorized
+    Account -->|Yes| Permissions["Combine built-in and staff permissions"]
+    Permissions --> Allowed{"Operation allowed?"}
+    Allowed -->|No| Forbidden["403 Forbidden"]
+    Allowed -->|Yes| Service["Run service and check customer ownership where applicable"]
+```
+
 ## Run locally
 
 Create a local environment file from the template.
@@ -29,9 +156,13 @@ The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http:
 | `POST /api/v1/auth/register` | Create a standard user using `username`, `email`, and `password` |
 | `POST /api/v1/auth/authenticate` | Sign in with `username` and `password` |
 | `POST /api/v1/auth/refresh` | Issue a new access token from the `refresh_token` field |
-| `GET /api/v1/products` | List products with optional `page`, `size`, `sort`, and `categoryId` parameters |
+| `GET /api/v1/products` | List products with pagination and optional `categoryId`, `familyId`, `sku`, `gtin`, and `q` filters |
 | `GET /api/v1/products/{id}` | Read a product |
 | `POST /api/v1/products`, `PUT /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` | Manage products as an administrator |
+| `GET /api/v1/product-families`, `GET /api/v1/product-families/{id}` | Browse variant groups |
+| `POST /api/v1/admin/product-families`, `PUT /api/v1/admin/product-families/{id}`, `DELETE /api/v1/admin/product-families/{id}` | Manage variant groups |
+| `PUT /api/v1/admin/products/{id}/metadata` | Update GTIN, family and variant details independently of price and stock |
+| `GET /api/v1/admin/products/{id}/marketplace-listings`, `PUT` or `DELETE /api/v1/admin/products/{id}/marketplace-listings/{channel}` | Manage local Amazon, Hepsiburada, Trendyol, and n11 listings by account and market |
 | `GET /api/v1/product-categories` | Read the cached category tree |
 | `POST /api/v1/product-categories` | Create a category tree as an administrator or catalog staff member |
 | `GET /api/v1/cart` | Read the signed-in user's cart |
@@ -45,14 +176,16 @@ The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http:
 | `GET /api/v1/admin/staff-roles/permissions` | List manageable roles and available operational permissions |
 | `GET /api/v1/admin/staff-roles/{role}/permissions`, `PUT /api/v1/admin/staff-roles/{role}/permissions` | Read or replace the operational permissions of a staff role |
 | `PATCH /api/v1/staff/catalog/products/{id}/content` | Update product `name`, `description`, and `categoryId` as catalog staff |
-| `POST /api/v1/staff/inventory/products/{id}/adjust` | Adjust stock using a signed, nonzero `delta` and a `reason` as fulfillment staff |
+| `POST /api/v1/staff/inventory/products/{id}/adjust` | Adjust stock with `Idempotency-Key`, a signed nonzero `delta`, and a `reason` as fulfillment staff |
 | `GET /api/v1/staff/fulfillment/orders`, `GET /api/v1/staff/fulfillment/orders/{id}` | Read the paid order queue or packing details as fulfillment staff |
 | `POST /api/v1/staff/fulfillment/orders/{id}/ship` | Mark a paid order as shipped as fulfillment staff |
 | `GET /api/v1/staff/support/orders/{id}` | Read order status and masked email as support staff |
 
 Send `Authorization: Bearer <access_token>` for catalog, cart, and order requests. A refresh token is accepted only by the refresh endpoint and retains its original expiry. Tokens from before the token format change require signing in again. Set a stable JWT key to keep tokens valid across restarts.
 
-Product lists default to 20 rows, accept up to 100 per page, and include an `X-Total-Count` response header. The supported sort fields are `id`, `name`, `price`, and `stock`. For example, `?page=0&size=20&sort=price,asc&categoryId=2`. Product writes require `name`, `price`, `stock`, and an existing `categoryId`. Category writes take a `categories` array whose entries may specify a `parentId` or contain nested `subCategories`.
+Product lists default to 20 rows, accept up to 100 per page, and include an `X-Total-Count` response header. The supported sort fields are `id`, `sku`, `name`, `price`, and `stock`. For example, `?page=0&size=20&sort=price,asc&categoryId=2`. Product creation requires `name`, `price`, an initial `stock`, and an existing `categoryId`. Catalog updates preserve current stock even if a legacy client sends `stock`. A product can also have a stable SKU, GTIN, family, and catalog metadata. See the [marketplace catalog model and request examples](MARKETPLACE_CATALOG.md). Category writes take a `categories` array whose entries may specify a `parentId` or contain nested `subCategories`.
+
+To change existing stock, use the inventory adjustment endpoint. Retry the same adjustment with the same `Idempotency-Key` to get the original result. Reusing that key for the same account and product with a different `delta` or `reason` returns `409`.
 
 Public registration assigns `ROLE_USER`. A trusted database operator can grant `ROLE_ADMIN` to a known account in a local environment using the following SQL, after replacing the username.
 

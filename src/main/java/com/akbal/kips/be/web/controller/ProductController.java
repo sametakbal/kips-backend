@@ -1,6 +1,8 @@
 package com.akbal.kips.be.web.controller;
 
 import com.akbal.kips.be.dto.product.request.ProductRequest;
+import com.akbal.kips.be.dto.product.request.ProductFilters;
+import com.akbal.kips.be.dto.product.request.ProductUpdateRequest;
 import com.akbal.kips.be.dto.product.response.ApiResponse;
 import com.akbal.kips.be.dto.product.response.ProductResponse;
 import com.akbal.kips.be.service.product.ProductService;
@@ -11,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springdoc.core.annotations.ParameterObject;
 
 import java.util.List;
 
@@ -40,9 +43,9 @@ public class ProductController extends BaseController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<ProductResponse>>> getProducts(
-            @RequestParam(required = false) Long categoryId,
+            @Valid @ModelAttribute @ParameterObject ProductFilters filters,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
-        var page = service.getProducts(categoryId, pageable);
+        var page = service.getProducts(filters, pageable);
         return ResponseEntity.ok()
                 .header("X-Total-Count", Long.toString(page.getTotalElements()))
                 .body(respond(page.getContent()));
@@ -51,7 +54,7 @@ public class ProductController extends BaseController {
     @PutMapping("/{id}")
     public ApiResponse<ProductResponse> updateProduct(
             @PathVariable Long id,
-            @RequestBody @Valid ProductRequest request) {
+            @RequestBody @Valid ProductUpdateRequest request) {
 
         var product = service.updateProduct(id, request);
         return respond(product);
