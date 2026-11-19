@@ -4,9 +4,12 @@ import com.akbal.kips.be.dto.commerce.CommerceDtos.Cart;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.Item;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.Order;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.OrderSummary;
+import com.akbal.kips.be.security.Permissions;
+import com.akbal.kips.be.service.staff.StaffAudit;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -15,6 +18,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 @Service
+@PreAuthorize("hasAuthority('" + Permissions.SHOP_OWN + "') and #username == authentication.name")
 public class CommerceService {
     private static final String ORDER_FIELDS = "id, status, payment_method, currency, total, created_at";
     private static final String CART_ITEMS = """
@@ -25,11 +29,13 @@ public class CommerceService {
     private static final String CURRENCY = "TRY";
 
     private final JdbcClient jdbc;
+    private final StaffAudit audit;
     private final boolean localPaymentEnabled;
 
-    public CommerceService(JdbcClient jdbc,
+    public CommerceService(JdbcClient jdbc, StaffAudit audit,
             @Value("${checkout.local-test-enabled:false}") boolean localPaymentEnabled) {
         this.jdbc = jdbc;
+        this.audit = audit;
         this.localPaymentEnabled = localPaymentEnabled;
     }
 
@@ -145,12 +151,15 @@ public class CommerceService {
     }
 
     @Transactional
+    @PreAuthorize("hasAuthority('" + Permissions.ORDER_SHIP + "')")
     public Order shipOrder(long orderId) {
         var summary = jdbc.sql("SELECT " + ORDER_FIELDS + " FROM shop_order WHERE id = :id FOR UPDATE")
                 .param("id", orderId).query(OrderSummary.class).optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
         if (!"SHIPPED".equals(summary.status())) {
+            var previousStatus = summary.status();
             summary = changePaidOrderStatus(orderId, "SHIPPED");
+            audit.record("ORDER_SHIPPED", "ORDER", orderId, previousStatus, summary.status(), null);
         }
         return readOrder(summary);
     }

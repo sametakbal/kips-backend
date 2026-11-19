@@ -1,5 +1,6 @@
 package com.akbal.kips.be.config;
 
+import com.akbal.kips.be.security.Permissions;
 import com.akbal.kips.be.web.filter.JwtAuthenticationFilter;
 import com.akbal.kips.be.service.auth.JwtService;
 import jakarta.servlet.DispatcherType;
@@ -37,10 +38,23 @@ public class SecurityConfiguration {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/v1/auth/**", "/swagger-ui.html", "/swagger-ui/**",
                                 "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/products", "/api/v1/product-categories")
-                            .hasAuthority("ROLE_ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/products/*").hasAuthority("ROLE_ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/products/*").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/products").hasAuthority(Permissions.CATALOG_MANAGE)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/product-categories").hasAuthority(Permissions.CATALOG_EDIT)
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/products/*").hasAuthority(Permissions.CATALOG_MANAGE)
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/products/*").hasAuthority(Permissions.CATALOG_MANAGE)
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/staff/catalog/products/*/content")
+                            .hasAuthority(Permissions.CATALOG_EDIT)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/staff/inventory/products/*/adjust")
+                            .hasAuthority(Permissions.INVENTORY_ADJUST)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/staff/fulfillment/orders", "/api/v1/staff/fulfillment/orders/*")
+                            .hasAuthority(Permissions.ORDER_READ_FULFILLMENT)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/staff/fulfillment/orders/*/ship")
+                            .hasAuthority(Permissions.ORDER_SHIP)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/staff/support/orders/*")
+                            .hasAuthority(Permissions.ORDER_READ_SUPPORT)
+                        .requestMatchers("/api/v1/staff/**").denyAll()
+                        .requestMatchers("/api/v1/cart", "/api/v1/cart/**", "/api/v1/orders", "/api/v1/orders/**")
+                            .hasAuthority(Permissions.SHOP_OWN)
                         .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/v1/user/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
                         .anyRequest().authenticated()

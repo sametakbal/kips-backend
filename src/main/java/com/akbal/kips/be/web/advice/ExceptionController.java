@@ -7,6 +7,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -46,6 +47,12 @@ public class ExceptionController extends ResponseEntityExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAuthentication() {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(error(HttpStatus.UNAUTHORIZED, "Authentication failed"));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(error(HttpStatus.FORBIDDEN, "Access denied"));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

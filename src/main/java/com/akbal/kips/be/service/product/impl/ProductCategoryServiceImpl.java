@@ -6,12 +6,14 @@ import com.akbal.kips.be.dto.product.request.CategoryCreateRequest;
 import com.akbal.kips.be.dto.product.request.CategoryRequest;
 import com.akbal.kips.be.dto.product.response.CategoryResponse;
 import com.akbal.kips.be.repository.ProductCategoryRepository;
+import com.akbal.kips.be.security.Permissions;
 import com.akbal.kips.be.service.product.ProductCategoryService;
 import com.akbal.kips.be.service.product.mapper.ProductCategoryMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,6 +36,7 @@ public class ProductCategoryServiceImpl implements ProductCategoryService {
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheNames.ALL_CATEGORIES, allEntries = true)
+    @PreAuthorize("hasAuthority('" + Permissions.CATALOG_EDIT + "')")
     public List<CategoryResponse> createCategories(CategoryCreateRequest request) {
         return request.getCategories().stream().map(category -> {
             var parent = category.getParentId() == null ? null : repository.findById(category.getParentId())
