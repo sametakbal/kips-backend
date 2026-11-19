@@ -4,7 +4,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/kips_db
     username: kips_admin
-    password: db_password!
+    password: ${POSTGRES_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -30,15 +30,19 @@ spring:
   cache:
     type: redis
     redis:
-      time-to-live: 600000
+      time-to-live: 10m
 
   flyway:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
   data:
+    web:
+      pageable:
+        max-page-size: 100
     redis:
-      host: redis_cache
+      host: ${redis.hostname:localhost}
+      password: ${redis.password:}
       port: 6379
 
 server:
@@ -53,7 +57,7 @@ logging:
 application:
   security:
     jwt:
-      secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      secret-key: ${JWT_SECRET_KEY:}
       expiration: 86400000 # 24 hours
       refresh-token:
         expiration: 604800000 # 7 days

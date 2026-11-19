@@ -5,9 +5,10 @@ import com.akbal.kips.be.dto.product.request.CategoryCreateRequest;
 import com.akbal.kips.be.dto.product.response.ApiResponse;
 import com.akbal.kips.be.dto.product.response.CategoryResponse;
 import com.akbal.kips.be.service.product.ProductCategoryService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,8 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@Slf4j
 @RestController
+@SecurityRequirement(name = "bearerAuth")
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/product-categories")
 public class ProductCategoryController extends BaseController {
@@ -33,9 +34,9 @@ public class ProductCategoryController extends BaseController {
     }
 
     @PostMapping
-    public ResponseEntity<Void> createCategory(@RequestBody @Valid CategoryCreateRequest request) {
-        log.info("Create category: {}", request);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<ApiResponse<List<CategoryResponse>>> createCategory(@RequestBody @Valid CategoryCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(respond(service.createCategories(request), HttpStatus.CREATED));
     }
 
 }

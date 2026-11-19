@@ -42,6 +42,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
 
 	implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
 	runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"

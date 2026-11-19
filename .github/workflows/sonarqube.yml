@@ -2,8 +2,6 @@ name: SonarQube Analysis
 
 on:
   push:
-    paths-ignore:
-      - '**/migration/**'
     branches:
       - main
   pull_request:
@@ -14,6 +12,25 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: kips_test
+          POSTGRES_USER: kips_test
+          POSTGRES_PASSWORD: integration-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kips_test -d kips_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
 
     steps:
       - name: Checkout repository
@@ -36,6 +53,13 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
+
+      - name: Run integration tests
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/kips_test
+          SPRING_DATASOURCE_USERNAME: kips_test
+          SPRING_DATASOURCE_PASSWORD: integration-test
+        run: ./gradlew test
 
       - name: Run SonarQube Scan
         env:

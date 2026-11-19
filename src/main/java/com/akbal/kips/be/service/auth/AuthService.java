@@ -7,4 +7,5 @@ import com.akbal.kips.be.dto.auth.response.AuthenticationResponse;
 public interface AuthService {
     AuthenticationResponse register(RegisterRequest request);
     AuthenticationResponse authenticate(AuthenticationRequest request);
+    AuthenticationResponse refresh(String refreshToken);
 }

@@ -11,13 +11,13 @@ This guide provides you with the guidelines for contributing effectively.
 - Docker with Compose
 - JDK 25 for running Gradle directly on the host
 
-Make sure you can build and run the project locally:
+Set up `.env` using the [local setup instructions](README.md#run-locally), then start the application.
 
 ```bash
 docker compose up --build -d --wait
 ```
 
-To run the API on the host while keeping its dependencies in Docker, start `postgres` and `redis` with `docker compose up -d --wait postgres redis`, then run `./gradlew bootRun --args='--redis.hostname=localhost --redis.password='`.
+To run the API on the host while keeping its dependencies in Docker, start `postgres` and `redis` with `docker compose up -d --wait postgres redis`. Pass the host database URL, username, and password via `SPRING_DATASOURCE_*`, then run `./gradlew bootRun`.
 
 ---
 
@@ -77,7 +77,7 @@ Go to your forked repo on GitHub and click **Compare & Pull Request**. Include a
 
 ## 🧪 Tests
 
-If you're adding new features or fixing bugs, please include tests:
+Run the integration tests with a dedicated PostgreSQL database and Redis as described in the [test setup](README.md#tests).
 ```bash
 ./gradlew test
 ```

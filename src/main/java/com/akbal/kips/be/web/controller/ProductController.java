@@ -4,13 +4,18 @@ import com.akbal.kips.be.dto.product.request.ProductRequest;
 import com.akbal.kips.be.dto.product.response.ApiResponse;
 import com.akbal.kips.be.dto.product.response.ProductResponse;
 import com.akbal.kips.be.service.product.ProductService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
+@SecurityRequirement(name = "bearerAuth")
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/products")
 public class ProductController extends BaseController {
@@ -34,10 +39,13 @@ public class ProductController extends BaseController {
     }
 
     @GetMapping
-    public ApiResponse<List<ProductResponse>> getAllProducts() {
-
-        var products = service.getAllProducts();
-        return respond(products);
+    public ResponseEntity<ApiResponse<List<ProductResponse>>> getProducts(
+            @RequestParam(required = false) Long categoryId,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+        var page = service.getProducts(categoryId, pageable);
+        return ResponseEntity.ok()
+                .header("X-Total-Count", Long.toString(page.getTotalElements()))
+                .body(respond(page.getContent()));
     }
 
     @PutMapping("/{id}")

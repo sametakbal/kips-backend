@@ -4,9 +4,11 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kips_db}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-kips_admin}
-      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-db_password!}"
-      REDIS_HOSTNAME: redis
-      REDIS_PASSWORD: ""
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-}"
+      CHECKOUT_LOCAL_TEST_ENABLED: "${CHECKOUT_LOCAL_TEST_ENABLED:-true}"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: ""
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -29,7 +31,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kips_admin}
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-db_password!}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
       POSTGRES_DB: ${POSTGRES_DB:-kips_db}
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"

@@ -2,6 +2,7 @@ package com.akbal.kips.be.web.controller;
 
 import com.akbal.kips.be.dto.auth.request.AuthenticationRequest;
 import com.akbal.kips.be.dto.auth.request.RegisterRequest;
+import com.akbal.kips.be.dto.auth.request.RefreshRequest;
 import com.akbal.kips.be.dto.auth.response.AuthenticationResponse;
 import com.akbal.kips.be.service.auth.AuthService;
 import jakarta.validation.Valid;
@@ -28,5 +29,10 @@ public class AuthController {
             @Valid @RequestBody AuthenticationRequest request
     ) {
         return ResponseEntity.ok(authenticationService.authenticate(request));
+    }
+
+    @PostMapping("/refresh")
+    public AuthenticationResponse refresh(@Valid @RequestBody RefreshRequest request) {
+        return authenticationService.refresh(request.refreshToken());
     }
 }

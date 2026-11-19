@@ -1,93 +1,67 @@
 package com.akbal.kips.be.service.auth.impl;
 
 import com.akbal.kips.be.service.auth.JwtService;
-import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
+import java.time.Instant;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.function.Function;
 
 @Service
 public class JwtServiceImpl implements JwtService {
+    private final SecretKey signingKey;
+    private final long accessExpiration;
+    private final long refreshExpiration;
+    private final JwtParser accessParser;
+    private final JwtParser refreshParser;
 
-    @Value("${application.security.jwt.secret-key}")
-    private String secretKey;
-
-    @Value("${application.security.jwt.expiration}")
-    private long jwtExpiration;
-
-    @Value("${application.security.jwt.refresh-token.expiration}")
-    private long refreshExpiration;
-
-    public String extractUsername(String token) {
-        return extractClaim(token, Claims::getSubject);
+    public JwtServiceImpl(
+            @Value("${application.security.jwt.secret-key:}") String secretKey,
+            @Value("${application.security.jwt.expiration}") long accessExpiration,
+            @Value("${application.security.jwt.refresh-token.expiration}") long refreshExpiration) {
+        this.signingKey = secretKey.isBlank()
+                ? Jwts.SIG.HS256.key().build()
+                : Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretKey));
+        this.accessExpiration = accessExpiration;
+        this.refreshExpiration = refreshExpiration;
+        this.accessParser = Jwts.parser().verifyWith(signingKey).require("token_use", "access").build();
+        this.refreshParser = Jwts.parser().verifyWith(signingKey).require("token_use", "refresh").build();
     }
 
-    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
-        return claimsResolver.apply(claims);
+    @Override
+    public String accessSubject(String token) {
+        return accessParser.parseSignedClaims(token).getPayload().getSubject();
     }
 
-    public String generateToken(UserDetails userDetails) {
-        return generateToken(new HashMap<>(), userDetails);
+    @Override
+    public String refreshSubject(String token) {
+        return refreshParser.parseSignedClaims(token).getPayload().getSubject();
     }
 
-    public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
-        return buildToken(extraClaims, userDetails, jwtExpiration);
+    @Override
+    public String generateToken(UserDetails user) {
+        return buildToken(user, "access", accessExpiration);
     }
 
-    public String generateRefreshToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, refreshExpiration);
+    @Override
+    public String generateRefreshToken(UserDetails user) {
+        return buildToken(user, "refresh", refreshExpiration);
     }
 
-    private String buildToken(
-            Map<String, Object> extraClaims,
-            UserDetails userDetails,
-            long expiration
-    ) {
-        return Jwts
-                .builder()
-                .setClaims(extraClaims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
+    private String buildToken(UserDetails user, String tokenUse, long expiration) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(user.getUsername())
+                .claim("token_use", tokenUse)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusMillis(expiration)))
+                .signWith(signingKey, Jwts.SIG.HS256)
                 .compact();
-    }
-
-    public boolean isTokenValid(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
-    }
-
-    private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
-    }
-
-    private Date extractExpiration(String token) {
-        return extractClaim(token, Claims::getExpiration);
-    }
-
-    private Claims extractAllClaims(String token) {
-        return Jwts
-                .parser()
-                .setSigningKey(getSignInKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
-    }
-
-    private Key getSignInKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
     }
 }

@@ -1,192 +1,68 @@
 # Kips Shop
 
-**Kips Shop** is a monolithic e-commerce backend application built with **Spring Boot**. It follows clean architecture principles and aims to provide a scalable and maintainable foundation for e-commerce platforms.
+Kips Shop is a Spring Boot e-commerce REST backend. It provides JWT authentication, a product catalog, category trees, carts, stock-aware checkout, and orders with local test payments.
 
----
+## Stack
 
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=sametakbal_kips-shop&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=sametakbal_kips-shop)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=sametakbal_kips-shop&metric=coverage)](https://sonarcloud.io/summary/new_code?id=sametakbal_kips-shop)
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=sametakbal_kips-shop&metric=bugs)](https://sonarcloud.io/summary/new_code?id=sametakbal_kips-shop)
-[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=sametakbal_kips-shop&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=sametakbal_kips-shop)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=sametakbal_kips-shop&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=sametakbal_kips-shop)
-[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=sametakbal_kips-shop&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=sametakbal_kips-shop)
+Java 25, Spring Boot 4.1.2, Gradle 9.8.1, PostgreSQL 15, Flyway, Redis 7, and SpringDoc OpenAPI.
 
+## Run locally
 
+Create a local environment file from the template.
 
+```bash
+cp -n .env.example .env
+```
 
-## 🚀 Features
-
-- 📦 Product & Category Management  
-- 🛒 Cart Operations with Redis Caching  
-- 🧾 Order Management (WIP)  
-- 🗃️ PostgreSQL + Flyway for database versioning  
-- ⚙️ RESTful API design with Spring Boot  
-- 📄 Auto-generated API documentation with Swagger (SpringDoc)
-
----
-
-## 🧱 Tech Stack
-
-- Java 25
-- Spring Boot 4.1.2
-- Spring Data JPA  
-- Redis (for caching)  
-- PostgreSQL  
-- Flyway (for DB migrations)  
-- SpringDoc OpenAPI (Swagger UI)
-
----
-
-## 📦 Modules (within monolith)
-
-- `product` – product & category entities and logic  
-- `cart` – Redis-based cart management  
-- `order` – order and checkout (in progress)  
-- `common` – shared DTOs, configs, and utilities
-
----
-
-## ⚙️ Getting Started
-
-### Run with Docker Compose
-
-From the repository root, build and start the API, PostgreSQL, and Redis.
+Set `POSTGRES_PASSWORD` in `.env`. Generate a JWT key with `openssl rand -base64 32` and set it as `JWT_SECRET_KEY`. For an existing PostgreSQL volume, keep using that database user's current password.
 
 ```bash
 docker compose up --build -d --wait
 ```
 
-The API is available at `http://localhost:8080`. PostgreSQL data is stored in the `postgres_data` volume. The API connects to `postgres` and `redis` on the Compose network.
+The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http://localhost:8080/swagger-ui.html) and the [OpenAPI specification](http://localhost:8080/v3/api-docs). Set `POSTGRES_HOST_PORT=5433` in `.env` if port `5432` is occupied. PostgreSQL data persists in the `postgres_data` volume.
 
-If another PostgreSQL instance is already using host port `5432`, run `POSTGRES_HOST_PORT=5433 docker compose up --build -d --wait`.
+## API
 
----
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/v1/auth/register` | Create a standard user using `username`, `email`, and `password` |
+| `POST /api/v1/auth/authenticate` | Sign in with `username` and `password` |
+| `POST /api/v1/auth/refresh` | Issue a new access token from the `refresh_token` field |
+| `GET /api/v1/products` | List products with optional `page`, `size`, `sort`, and `categoryId` parameters |
+| `GET /api/v1/products/{id}` | Read a product |
+| `POST /api/v1/products`, `PUT /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` | Manage products as an administrator |
+| `GET /api/v1/product-categories` | Read the cached category tree |
+| `POST /api/v1/product-categories` | Create a category tree as an administrator |
+| `GET /api/v1/cart` | Read the signed-in user's cart |
+| `PUT /api/v1/cart/items/{productId}`, `DELETE /api/v1/cart/items/{productId}` | Set a positive `quantity` or remove an item |
+| `POST /api/v1/orders/checkout` | Check stock, record prices, and create a local test order |
+| `GET /api/v1/orders`, `GET /api/v1/orders/{id}` | List and read the signed-in user's orders |
+| `POST /api/v1/orders/{id}/cancel` | Cancel an unshipped order and restore stock |
+| `POST /api/v1/admin/orders/{id}/ship` | Mark a paid order as shipped as an administrator |
 
-## 📦 Product CRUD API
+Send `Authorization: Bearer <access_token>` for catalog, cart, and order requests. A refresh token is accepted only by the refresh endpoint and retains its original expiry. Tokens from before the token format change require signing in again. Set a stable JWT key to keep tokens valid across restarts.
 
-Full description of the **Product** module: create, read, update and delete products through a RESTful API protected by JWT authentication.
+Product lists default to 20 rows, accept up to 100 per page, and include an `X-Total-Count` response header. The supported sort fields are `id`, `name`, `price`, and `stock`. For example, `?page=0&size=20&sort=price,asc&categoryId=2`. Product writes require `name`, `price`, `stock`, and an existing `categoryId`. Category writes take a `categories` array whose entries may specify a `parentId` or contain nested `subCategories`.
 
-### Overview
+Public registration assigns `ROLE_USER`. A trusted database operator can grant `ROLE_ADMIN` to a known account in a local environment using the following SQL, after replacing the username.
 
-Products are managed under the `/api/v1/products` resource. Each product belongs to exactly one category (`categoryId` references an entry in `product_category`, seeded by Flyway migration `V2`). All endpoints require a valid JWT bearer token; without one Spring Security returns `403 Forbidden`.
-
-### Code structure
-
-```
-src/main/java/com/akbal/kips/be/
-├── web/controller/ProductController.java      # REST endpoints
-├── service/product/                           # service layer
-│   ├── ProductService.java                    # interface
-│   └── impl/ProductServiceImpl.java           # implementation
-├── service/product/mapper/ProductMapper.java  # entity <-> DTO mapping
-├── domain/product/Product.java                # JPA entity
-├── repository/ProductRepository.java          # Spring Data repository
-└── dto/product/
-    ├── request/ProductRequest.java            # input payload
-    └── response/ProductResponse.java          # output payload
-```
-
-### Endpoints
-
-| Method   | Path                  | Description              |
-|----------|-----------------------|--------------------------|
-| `POST`   | `/api/v1/products`      | Create a new product     |
-| `GET`    | `/api/v1/products`      | List all products        |
-| `GET`    | `/api/v1/products/{id}` | Get one product by id    |
-| `PUT`    | `/api/v1/products/{id}` | Update an existing product |
-| `DELETE` | `/api/v1/products/{id}` | Delete a product         |
-
-### Authentication
-
-Every request must include the header:
-
-```
-Authorization: Bearer <access_token>
+```sql
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id
+FROM app_user u CROSS JOIN app_user_roles r
+WHERE u.username = 'your-local-account' AND r.name = 'ROLE_ADMIN'
+ON CONFLICT DO NOTHING;
 ```
 
-Get a token by registering or authenticating at `/api/v1/auth/**` (see JWT flow).
+Checkout requires an `Idempotency-Key` header of up to 128 characters. Retries with the same key for the same account return the same order. The cart shows current prices. Checkout records prices and product names in the order and adjusts stock in one transaction. The test payment uses TRY and is enabled by default in local Compose. Outside Compose, set `CHECKOUT_LOCAL_TEST_ENABLED=true` to enable it. The test flow requires no payment details.
 
-### Request payload (`ProductRequest`)
+Validation failures return `400`, missing or invalid authentication returns `401`, insufficient privileges returns `403`, and missing records return `404`. Conflicts such as duplicate registration and insufficient stock return `409`.
 
-| Field         | Type      | Validation      |
-|---------------|-----------|-----------------|
-| `name`        | String    | required (`@NotBlank`) |
-| `description` | String    | optional         |
-| `price`       | BigDecimal| required (`@NotNull`)    |
-| `stock`       | Integer   | required (`@NotNull`)    |
-| `categoryId`  | Long      | required (`@NotNull`), must reference an existing `product_category.id` |
+## Tests
 
-### Response payload (`ProductResponse`)
+Run `./gradlew test` with Java 25, an empty PostgreSQL test database, and Redis. Set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` for the test database. Redis defaults to localhost and the tests use logical database 15. CI provisions both services before running the suite.
 
-```json
-{
-  "id": 1,
-  "name": "Rolex Submariner",
-  "description": "Luxury dive watch",
-  "price": 15999.99,
-  "stock": 5,
-  "categoryId": 2
-}
-```
+## License
 
-All responses are wrapped in a standard envelope:
-
-```json
-{
-  "data": { ... },
-  "success": true,
-  "status": "OK"
-}
-```
-
-### Example requests (curl)
-
-**Create a product**
-
-```bash
-curl -s -X POST http://localhost:8080/api/v1/products \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{"name":"Rolex Submariner","description":"Luxury dive watch","price":15999.99,"stock":5,"categoryId":2}'
-```
-
-**Get all products**
-
-```bash
-curl -s http://localhost:8080/api/v1/products \
-  -H "Authorization: Bearer <access_token>"
-```
-
-**Get one product**
-
-```bash
-curl -s http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer <access_token>"
-```
-
-**Update a product**
-
-```bash
-curl -s -X PUT http://localhost:8080/api/v1/products/1 \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{"name":"Rolex Submariner Date","description":"Updated luxury dive watch","price":17500.00,"stock":3,"categoryId":2}'
-```
-
-**Delete a product**
-
-```bash
-curl -s -X DELETE http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer <access_token>"
-```
-
-### Error cases
-
-| Scenario                          | Result |
-|-----------------------------------|--------|
-| Missing / invalid JWT token       | `403 Forbidden` |
-| `categoryId` does not exist       | `500` (thrown by `orElseThrow()`) |
-| Missing required field (`name`, `price`, `stock`, `categoryId`) | `400` with field error message |
-| Product id not found on GET/PUT   | `500` |
-
-> Note: the service currently uses `.orElseThrow()` and validation is not mapped to clean `400` responses for missing resources — a catch-all `RuntimeException` handler returns an `ApiResponse` with the failure message.
+[MIT](LICENSE)

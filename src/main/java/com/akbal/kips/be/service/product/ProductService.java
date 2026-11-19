@@ -3,7 +3,8 @@ package com.akbal.kips.be.service.product;
 import com.akbal.kips.be.dto.product.request.ProductRequest;
 import com.akbal.kips.be.dto.product.response.ProductResponse;
 
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface ProductService {
 
@@ -11,7 +12,7 @@ public interface ProductService {
 
     ProductResponse getProductById(Long id);
 
-    List<ProductResponse> getAllProducts();
+    Page<ProductResponse> getProducts(Long categoryId, Pageable pageable);
 
     ProductResponse updateProduct(Long id, ProductRequest request);
 
