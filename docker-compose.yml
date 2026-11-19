@@ -1,18 +1,45 @@
-version: '3.8'
-
 services:
+  api:
+    build: .
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kips_db}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-kips_admin}
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:-db_password!}"
+      REDIS_HOSTNAME: redis
+      REDIS_PASSWORD: ""
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    networks:
+      - backend_network
+
   postgres:
     image: postgres:15
     container_name: kips_postgres_db
     restart: always
     environment:
-      POSTGRES_USER: kips_admin
-      POSTGRES_PASSWORD: db_password!
-      POSTGRES_DB: kips_db
+      POSTGRES_USER: ${POSTGRES_USER:-kips_admin}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-db_password!}"
+      POSTGRES_DB: ${POSTGRES_DB:-kips_db}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     networks:
       - backend_network
 
@@ -21,7 +48,12 @@ services:
     container_name: redis_cache
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     networks:
       - backend_network
 

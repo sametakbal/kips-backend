@@ -27,8 +27,8 @@
 
 ## 🧱 Tech Stack
 
-- Java 21  
-- Spring Boot 3.4.x  
+- Java 25
+- Spring Boot 4.1.2
 - Spring Data JPA  
 - Redis (for caching)  
 - PostgreSQL  
@@ -48,17 +48,17 @@
 
 ## ⚙️ Getting Started
 
-### Prerequisites
+### Run with Docker Compose
 
-- Java 21  
-- Docker (for PostgreSQL and Redis)
-- Gradle (wrapper included)
-
-### Clone the repository
+From the repository root, build and start the API, PostgreSQL, and Redis.
 
 ```bash
-git clone https://github.com/sametakbal/kips-shop.git
-cd kips-shop
+docker compose up --build -d --wait
+```
+
+The API is available at `http://localhost:8080`. PostgreSQL data is stored in the `postgres_data` volume. The API connects to `postgres` and `redis` on the Compose network.
+
+If another PostgreSQL instance is already using host port `5432`, run `POSTGRES_HOST_PORT=5433 docker compose up --build -d --wait`.
 
 ---
 

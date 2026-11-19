@@ -8,16 +8,16 @@ This guide provides you with the guidelines for contributing effectively.
 
 ## 🧰 Prerequisites
 
-- Java 21 installed
-- Docker (for PostgreSQL and Redis)
-- Gradle (wrapper included)
+- Docker with Compose
+- JDK 25 for running Gradle directly on the host
 
 Make sure you can build and run the project locally:
 
 ```bash
-docker-compose up -d
-./gradlew bootRun
+docker compose up --build -d --wait
 ```
+
+To run the API on the host while keeping its dependencies in Docker, start `postgres` and `redis` with `docker compose up -d --wait postgres redis`, then run `./gradlew bootRun --args='--redis.hostname=localhost --redis.password='`.
 
 ---
 
