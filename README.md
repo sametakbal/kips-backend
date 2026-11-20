@@ -51,7 +51,9 @@ erDiagram
     PRODUCT ||..o{ MARKETPLACE_LISTING : "has channel listings"
     APP_USER ||--o{ CART_ITEM : "owns"
     PRODUCT ||--o{ CART_ITEM : "appears in"
+    APP_USER ||--o{ USER_ADDRESS : "saves"
     APP_USER ||..o{ SHOP_ORDER : "places"
+    USER_ADDRESS |o..o{ SHOP_ORDER : "ships to"
     SHOP_ORDER ||--|{ SHOP_ORDER_ITEM : "contains"
     PRODUCT ||--o{ SHOP_ORDER_ITEM : "is referenced by"
 
@@ -79,6 +81,16 @@ erDiagram
         string channel_sku
         string currency
         decimal sale_price
+    }
+    USER_ADDRESS {
+        bigint id PK
+        bigint user_id FK
+        string recipient_name
+        string phone
+        string city
+        string postal_code
+        string country
+        boolean is_default
     }
     SHOP_ORDER_ITEM {
         bigint order_id PK, FK
@@ -156,6 +168,11 @@ The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http:
 | `POST /api/v1/auth/register` | Create a standard user using `username`, `email`, and `password` |
 | `POST /api/v1/auth/authenticate` | Sign in with `username` and `password` |
 | `POST /api/v1/auth/refresh` | Issue a new access token from the `refresh_token` field |
+| `GET /api/v1/user/profile`, `PUT /api/v1/user/profile` | Read or update the signed-in user's `email` |
+| `PUT /api/v1/user/password` | Change the signed-in user's password using `currentPassword` and `newPassword` |
+| `GET /api/v1/addresses` | List the signed-in user's shipping addresses |
+| `POST /api/v1/addresses`, `PUT /api/v1/addresses/{id}`, `DELETE /api/v1/addresses/{id}` | Create, update, or remove a shipping address |
+| `POST /api/v1/addresses/{id}/default` | Mark an address as the default for future checkouts |
 | `GET /api/v1/products` | List products with pagination and optional `categoryId`, `familyId`, `sku`, `gtin`, and `q` filters |
 | `GET /api/v1/products/{id}` | Read a product |
 | `POST /api/v1/products`, `PUT /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` | Manage products as an administrator |
@@ -167,7 +184,7 @@ The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http:
 | `POST /api/v1/product-categories` | Create a category tree as an administrator or catalog staff member |
 | `GET /api/v1/cart` | Read the signed-in user's cart |
 | `PUT /api/v1/cart/items/{productId}`, `DELETE /api/v1/cart/items/{productId}` | Set a positive `quantity` or remove an item |
-| `POST /api/v1/orders/checkout` | Check stock, record prices, and create a local test order |
+| `POST /api/v1/orders/checkout` | Check stock, record prices, snapshot the chosen `addressId`, and create a local test order |
 | `GET /api/v1/orders`, `GET /api/v1/orders/{id}` | List and read the signed-in user's orders |
 | `POST /api/v1/orders/{id}/cancel` | Cancel an unshipped order and restore stock |
 | `POST /api/v1/admin/orders/{id}/ship` | Mark a paid order as shipped as an administrator |
@@ -207,7 +224,9 @@ To change a staff role’s permissions, fetch its current set, then send the com
 
 An empty set removes every permission granted by that staff role. Permissions from any other assigned roles continue to apply. Customer access, full catalog management, and staff role administration are fixed to their built-in roles. Each permission change records the previous and new sets in `staff_audit_event`.
 
-Checkout requires an `Idempotency-Key` header of up to 128 characters. Retries with the same key for the same account return the same order. The cart shows current prices. Checkout records prices and product names in the order and adjusts stock in one transaction. The test payment uses TRY and is enabled by default in local Compose. Outside Compose, set `CHECKOUT_LOCAL_TEST_ENABLED=true` to enable it. The test flow requires no payment details.
+Checkout requires an `Idempotency-Key` header of up to 128 characters and an `addressId` referencing one of the signed-in user's own addresses. Retries with the same key for the same account return the same order. The cart shows current prices. Checkout records prices, product names, and a shipping address snapshot in the order and adjusts stock in one transaction. The test payment uses TRY and is enabled by default in local Compose. Outside Compose, set `CHECKOUT_LOCAL_TEST_ENABLED=true` to enable it. The test flow requires no payment details.
+
+A user can hold up to 20 saved addresses. The first address saved, or any address explicitly sent with `defaultAddress: true`, becomes the default and clears the previous default. Deleting an address does not affect past orders, since the shipping details are copied onto the order at checkout time.
 
 Validation failures return `400`, missing or invalid authentication returns `401`, insufficient privileges returns `403`, and missing records return `404`. Conflicts such as duplicate registration and insufficient stock return `409`.
 

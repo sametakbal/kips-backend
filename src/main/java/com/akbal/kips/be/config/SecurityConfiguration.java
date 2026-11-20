@@ -53,7 +53,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/staff/support/orders/*")
                             .hasAuthority(Permissions.ORDER_READ_SUPPORT)
                         .requestMatchers("/api/v1/staff/**").denyAll()
-                        .requestMatchers("/api/v1/cart", "/api/v1/cart/**", "/api/v1/orders", "/api/v1/orders/**")
+                        .requestMatchers("/api/v1/cart", "/api/v1/cart/**", "/api/v1/orders", "/api/v1/orders/**",
+                                "/api/v1/addresses", "/api/v1/addresses/**")
                             .hasAuthority(Permissions.SHOP_OWN)
                         .requestMatchers("/api/v1/admin/**").hasAuthority("ROLE_ADMIN")
                         .requestMatchers("/api/v1/user/**").hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")

@@ -1,6 +1,7 @@
 package com.akbal.kips.be.web.controller;
 
 import com.akbal.kips.be.dto.commerce.CommerceDtos.Cart;
+import com.akbal.kips.be.dto.commerce.CommerceDtos.CheckoutRequest;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.Order;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.OrderSummary;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.QuantityRequest;
@@ -38,8 +39,9 @@ public class CommerceController extends BaseController {
     }
 
     @PostMapping("/orders/checkout")
-    public ApiResponse<Order> checkout(Principal user, @RequestHeader("Idempotency-Key") String key) {
-        return respond(service.checkout(user.getName(), key));
+    public ApiResponse<Order> checkout(Principal user, @RequestHeader("Idempotency-Key") String key,
+            @Valid @RequestBody CheckoutRequest request) {
+        return respond(service.checkout(user.getName(), key, request.addressId()));
     }
 
     @GetMapping("/orders")

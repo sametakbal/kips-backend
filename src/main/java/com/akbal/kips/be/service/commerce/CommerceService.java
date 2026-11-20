@@ -20,13 +20,20 @@ import java.util.List;
 @Service
 @PreAuthorize("hasAuthority('" + Permissions.SHOP_OWN + "') and #username == authentication.name")
 public class CommerceService {
-    private static final String ORDER_FIELDS = "id, status, payment_method, currency, total, created_at";
+    private static final String ORDER_FIELDS = """
+            id, status, payment_method, currency, total, created_at, shipping_recipient_name, shipping_phone,
+            shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country
+            """;
     private static final String CART_ITEMS = """
             SELECT p.id AS product_id, p.name AS product_name, p.price AS unit_price, item.quantity
             FROM cart_item item JOIN product p ON item.product_id = p.id
             WHERE item.user_id = :user ORDER BY p.id
             """;
     private static final String CURRENCY = "TRY";
+
+    public record AddressSnapshot(String recipientName, String phone, String line1, String line2,
+                                  String city, String state, String postalCode, String country) {
+    }
 
     private final JdbcClient jdbc;
     private final StaffAudit audit;
@@ -67,7 +74,7 @@ public class CommerceService {
     }
 
     @Transactional
-    public Order checkout(String username, String key) {
+    public Order checkout(String username, String key, long addressId) {
         if (!localPaymentEnabled) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Local test payment is disabled");
         }
@@ -81,6 +88,12 @@ public class CommerceService {
         if (previous.isPresent()) {
             return readOrder(previous.get());
         }
+        var address = jdbc.sql("""
+                SELECT recipient_name, phone, line1, line2, city, state, postal_code, country
+                FROM user_address WHERE id = :address AND user_id = :user
+                """).param("address", addressId).param("user", userId)
+                .query(AddressSnapshot.class).optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found"));
 
         var items = jdbc.sql(CART_ITEMS + " FOR UPDATE OF p").param("user", userId).query(Item.class).list();
         if (items.isEmpty()) {
@@ -96,11 +109,18 @@ public class CommerceService {
             }
         }
         var summary = jdbc.sql("""
-                INSERT INTO shop_order(user_id, idempotency_key, status, payment_method, currency, total)
-                VALUES (:user, :key, 'PAID', 'LOCAL_TEST', :currency, :total)
+                INSERT INTO shop_order(user_id, idempotency_key, status, payment_method, currency, total, address_id,
+                    shipping_recipient_name, shipping_phone, shipping_line1, shipping_line2, shipping_city,
+                    shipping_state, shipping_postal_code, shipping_country)
+                VALUES (:user, :key, 'PAID', 'LOCAL_TEST', :currency, :total, :address, :recipientName, :phone,
+                    :line1, :line2, :city, :state, :postalCode, :country)
                 RETURNING
                 """ + ORDER_FIELDS)
                 .param("user", userId).param("key", key).param("currency", CURRENCY).param("total", total(items))
+                .param("address", addressId).param("recipientName", address.recipientName())
+                .param("phone", address.phone()).param("line1", address.line1()).param("line2", address.line2())
+                .param("city", address.city()).param("state", address.state())
+                .param("postalCode", address.postalCode()).param("country", address.country())
                 .query(OrderSummary.class).single();
         for (var item : items) {
             jdbc.sql("""
