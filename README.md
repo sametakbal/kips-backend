@@ -1,5 +1,7 @@
 # Kips Shop
 
+**English** | [Türkçe](README.tr.md)
+
 Kips Shop is a Spring Boot e-commerce REST backend. It provides JWT authentication, a product catalog, category trees, carts, stock-aware checkout, and orders with local test payments.
 
 ## Stack
@@ -173,6 +175,8 @@ The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http:
 | `GET /api/v1/addresses` | List the signed-in user's shipping addresses |
 | `POST /api/v1/addresses`, `PUT /api/v1/addresses/{id}`, `DELETE /api/v1/addresses/{id}` | Create, update, or remove a shipping address |
 | `POST /api/v1/addresses/{id}/default` | Mark an address as the default for future checkouts |
+| `GET /api/v1/wishlist` | Read the signed-in user's wishlist with current price and stock |
+| `PUT /api/v1/wishlist/items/{productId}`, `DELETE /api/v1/wishlist/items/{productId}` | Add a product to the wishlist (repeating is a no-op) or remove it |
 | `GET /api/v1/products` | List products with pagination and optional `categoryId`, `familyId`, `sku`, `gtin`, and `q` filters |
 | `GET /api/v1/products/{id}` | Read a product |
 | `POST /api/v1/products`, `PUT /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` | Manage products as an administrator |
