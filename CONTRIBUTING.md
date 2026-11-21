@@ -30,8 +30,8 @@ Click the **Fork** button on the top right of the repo page to create your own c
 ### 2. Clone Your Fork
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/kips-shop.git
-cd kips-shop
+git clone https://github.com/YOUR_USERNAME/kips-backend.git
+cd kips-backend
 ```
 
 ### 3. Create a New Branch
@@ -86,7 +86,7 @@ Run the integration tests with a dedicated PostgreSQL database and Redis as desc
 
 ## 🗣️ Need Help?
 
-Feel free to open an issue or reach out via [GitHub Discussions](https://github.com/sametakbal/kips-shop/discussions) if you’re not sure how to start.
+Feel free to [open an issue](https://github.com/sametakbal/kips-backend/issues) if you’re not sure how to start.
 
 ---
 
