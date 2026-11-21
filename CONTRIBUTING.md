@@ -4,6 +4,9 @@ First of all, thank you for considering contributing to **Kips Shop**! Your help
 
 This guide provides you with the guidelines for contributing effectively.
 
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security
+vulnerabilities privately as described in the [Security Policy](SECURITY.md).
+
 ---
 
 ## 🧰 Prerequisites
