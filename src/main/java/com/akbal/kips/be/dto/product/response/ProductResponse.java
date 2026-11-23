@@ -18,4 +18,6 @@ public class ProductResponse {
     private BigDecimal price;
     private Integer stock;
     private Long categoryId;
+    private BigDecimal averageRating;
+    private Long reviewCount;
 }

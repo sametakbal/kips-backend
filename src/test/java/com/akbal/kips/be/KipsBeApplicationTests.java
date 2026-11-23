@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -486,6 +487,68 @@ class KipsBeApplicationTests {
         } finally {
             request("PUT", policy, defaults, admin.accessToken(), 200);
         }
+    }
+
+    @Test
+    void reviewsRequireAPurchaseAndKeepProductRatingsInSync() throws Exception {
+        var admin = register(true);
+        var buyer = register(false);
+        var buyer2 = register(false);
+        var stranger = register(false);
+        var productId = createProduct(admin, 5);
+        var path = PRODUCTS + "/" + productId + "/reviews";
+        var rating = (Function<Integer, Map<String, Object>>) value -> Map.of("rating", value, "comment", " Great ");
+
+        request("POST", path, rating.apply(5), stranger.accessToken(), 403);
+        placeOrder(buyer, productId, "PAID");
+        placeOrder(buyer2, productId, "CANCELLED");
+        request("POST", path, rating.apply(5), buyer2.accessToken(), 403);
+        request("POST", path, rating.apply(6), buyer.accessToken(), 400);
+        request("POST", path, rating.apply(0), buyer.accessToken(), 400);
+        request("POST", path, rating.apply(5), admin.accessToken(), 403);
+        request("POST", PRODUCTS + "/9223372036854775807/reviews", rating.apply(5), buyer.accessToken(), 404);
+
+        var created = node(request("POST", path, rating.apply(4), buyer.accessToken(), 201)).get("data");
+        assertThat(created.get("comment").asString()).isEqualTo("Great");
+        assertThat(created.get("username").asString()).isEqualTo(buyer.username());
+        request("POST", path, rating.apply(1), buyer.accessToken(), 409);
+
+        placeOrder(buyer2, productId, "SHIPPED");
+        request("POST", path, rating.apply(5), buyer2.accessToken(), 201);
+        var product = node(request("GET", PRODUCTS + "/" + productId, null, admin.accessToken(), 200)).get("data");
+        assertThat(product.get("averageRating").decimalValue()).isEqualByComparingTo("4.50");
+        assertThat(product.get("reviewCount").asLong()).isEqualTo(2);
+
+        var listed = request("GET", path + "?page=0&size=1", null, buyer.accessToken(), 200);
+        assertThat(listed.headers().firstValue("X-Total-Count")).contains("2");
+        assertThat(node(listed).get("data").size()).isEqualTo(1);
+        request("GET", PRODUCTS + "/9223372036854775807/reviews", null, buyer.accessToken(), 404);
+
+        var reviewPath = path + "/" + created.get("id").asLong();
+        request("DELETE", reviewPath, null, buyer.accessToken(), 403);
+        request("DELETE", reviewPath, null, admin.accessToken(), 200);
+        request("DELETE", reviewPath, null, admin.accessToken(), 404);
+        product = node(request("GET", PRODUCTS + "/" + productId, null, admin.accessToken(), 200)).get("data");
+        assertThat(product.get("averageRating").decimalValue()).isEqualByComparingTo("5.00");
+        assertThat(product.get("reviewCount").asLong()).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT count(*) FROM staff_audit_event WHERE action = 'REVIEW_DELETED' AND target_id = :id")
+                .param("id", created.get("id").asLong()).query(Long.class).single()).isEqualTo(1);
+        request("POST", path, rating.apply(2), buyer.accessToken(), 201);
+    }
+
+    private void placeOrder(Account customer, long productId, String status) {
+        var orderId = jdbc.sql("""
+                INSERT INTO shop_order (user_id, idempotency_key, status, payment_method, currency, total,
+                    shipping_recipient_name, shipping_phone, shipping_line1, shipping_city,
+                    shipping_postal_code, shipping_country)
+                SELECT u.id, :key, :status, 'LOCAL_TEST', 'TRY', 9.95, 'Test', '5550000000', 'Line', 'City', '34000', 'TR'
+                FROM app_user u WHERE u.username = :username RETURNING id
+                """).param("key", UUID.randomUUID().toString()).param("status", status)
+                .param("username", customer.username()).query(Long.class).single();
+        jdbc.sql("""
+                INSERT INTO shop_order_item (order_id, product_id, product_name, unit_price, quantity)
+                VALUES (:order, :product, 'Integration product', 9.95, 1)
+                """).param("order", orderId).param("product", productId).update();
     }
 
     private void assign(Account admin, Account employee, String role) throws Exception {

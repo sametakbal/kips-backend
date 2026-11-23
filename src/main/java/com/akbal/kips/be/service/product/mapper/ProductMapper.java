@@ -5,6 +5,9 @@ import com.akbal.kips.be.dto.product.request.ProductMetadata;
 import com.akbal.kips.be.dto.product.response.ProductResponse;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 @Component
 public class ProductMapper {
 
@@ -22,7 +25,17 @@ public class ProductMapper {
                                 ? product.getCategory().getId()
                                 : null
                 )
+                .averageRating(averageRating(product))
+                .reviewCount(product.getReviewCount() == null ? 0L : product.getReviewCount())
                 .build();
+    }
+
+    private BigDecimal averageRating(Product product) {
+        var count = product.getReviewCount();
+        if (count == null || count == 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(product.getRatingTotal()).divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
     }
 
     private ProductMetadata metadata(Product product) {

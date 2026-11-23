@@ -49,4 +49,11 @@ public class Product extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     private ProductCategory category;
+
+    // Maintained atomically by ReviewService; never written through the entity.
+    @Column(nullable = false, insertable = false, updatable = false)
+    private Long reviewCount;
+
+    @Column(nullable = false, insertable = false, updatable = false)
+    private Long ratingTotal;
 }

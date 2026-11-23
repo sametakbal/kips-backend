@@ -58,7 +58,16 @@ erDiagram
     USER_ADDRESS |o..o{ SHOP_ORDER : "ships to"
     SHOP_ORDER ||--|{ SHOP_ORDER_ITEM : "contains"
     PRODUCT ||--o{ SHOP_ORDER_ITEM : "is referenced by"
+    APP_USER ||--o{ PRODUCT_REVIEW : "writes"
+    PRODUCT ||--o{ PRODUCT_REVIEW : "receives"
 
+    PRODUCT_REVIEW {
+        bigint id PK
+        bigint product_id FK
+        bigint user_id FK
+        smallint rating
+        string comment
+    }
     PRODUCT_FAMILY {
         bigint id PK
         string code UK
@@ -73,6 +82,8 @@ erDiagram
         decimal price
         int stock
         jsonb catalog_details
+        bigint review_count
+        bigint rating_total
     }
     MARKETPLACE_LISTING {
         bigint id PK
@@ -180,6 +191,9 @@ The API runs at [localhost:8080](http://localhost:8080), with [Swagger UI](http:
 | `GET /api/v1/products` | List products with pagination and optional `categoryId`, `familyId`, `sku`, `gtin`, and `q` filters |
 | `GET /api/v1/products/{id}` | Read a product |
 | `POST /api/v1/products`, `PUT /api/v1/products/{id}`, `DELETE /api/v1/products/{id}` | Manage products as an administrator |
+| `GET /api/v1/products/{id}/reviews` | List a product's reviews, newest first, with pagination and `X-Total-Count`; products also expose `averageRating` and `reviewCount` |
+| `POST /api/v1/products/{id}/reviews` | Review a purchased (`PAID` or `SHIPPED`) product with a 1-5 `rating` and optional `comment`; one review per user (`409` on repeat, `403` without a purchase) |
+| `DELETE /api/v1/products/{id}/reviews/{reviewId}` | Remove an inappropriate review as catalog staff; the removal is audited |
 | `GET /api/v1/product-families`, `GET /api/v1/product-families/{id}` | Browse variant groups |
 | `POST /api/v1/admin/product-families`, `PUT /api/v1/admin/product-families/{id}`, `DELETE /api/v1/admin/product-families/{id}` | Manage variant groups |
 | `PUT /api/v1/admin/products/{id}/metadata` | Update GTIN, family and variant details independently of price and stock |
