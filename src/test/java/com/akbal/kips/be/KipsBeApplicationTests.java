@@ -1,22 +1,15 @@
 package com.akbal.kips.be;
 
 import com.akbal.kips.be.service.product.ProductCategoryService;
+import com.akbal.kips.be.support.IntegrationTestSupport;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -25,23 +18,11 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"checkout.local-test-enabled=true", "spring.data.redis.database=15"})
-class KipsBeApplicationTests {
-    private static final String PRODUCTS = "/api/v1/products";
+class KipsBeApplicationTests extends IntegrationTestSupport {
     private static final String CATEGORIES = "/api/v1/product-categories";
-    private static final String CHECKOUT = "/api/v1/orders/checkout";
     private static final String STAFF_ROLES = "/api/v1/admin/staff-roles";
     private static final String FULFILLMENT_ORDERS = "/api/v1/staff/fulfillment/orders";
     private static final String SUPPORT_ORDERS = "/api/v1/staff/support/orders";
-    private final HttpClient http = HttpClient.newHttpClient();
-    private final JsonMapper json = JsonMapper.builder().build();
-
-    @LocalServerPort
-    int port;
-
-    @Autowired
-    JdbcClient jdbc;
 
     @Autowired
     StringRedisTemplate redis;
@@ -179,6 +160,8 @@ class KipsBeApplicationTests {
     void managesProductFamiliesAndSearchesSellableVariantsWithoutChangingStockOrSku() throws Exception {
         var admin = register(true);
         var customer = register(false);
+        // The GTIN is fixed and unique, so release it when the test runs against a reused database.
+        jdbc.sql("UPDATE product SET gtin = NULL WHERE lpad(gtin, 14, '0') = '04006381333931'").update();
         var families = "/api/v1/admin/product-families";
         var code = "shirt-" + UUID.randomUUID().toString().substring(0, 8);
         var familyBody = Map.of("code", code, "name", "Linen shirt");
@@ -568,74 +551,5 @@ class KipsBeApplicationTests {
         var request = baseRequest(stockPath(id), actor.accessToken()).header("Idempotency-Key", key)
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload))).build();
         return node(send(request, status)).get("data");
-    }
-
-    private Account register(boolean admin) throws Exception {
-        var username = "test-" + UUID.randomUUID().toString().substring(0, 12);
-        var response = node(request("POST", "/api/v1/auth/register", Map.of("username", username,
-                "email", username + "@example.test", "password", "integration-password"), null, 200));
-
-        if (admin) {
-            int assigned = jdbc.sql("""
-                    INSERT INTO user_roles (user_id, role_id)
-                    SELECT u.id, r.id FROM app_user u CROSS JOIN app_user_roles r
-                    WHERE u.username = :username AND r.name = 'ROLE_ADMIN'
-                    """).param("username", username).update();
-            assertThat(assigned).isEqualTo(1);
-        }
-        return new Account(username, response.get("access_token").asString(),
-                response.get("refresh_token").asString());
-    }
-
-    private long createProduct(Account admin, int stock) throws Exception {
-        return node(request("POST", PRODUCTS, product("Integration product", stock), admin.accessToken(), 200))
-                .get("data").get("id").asLong();
-    }
-
-    private Map<String, Object> product(String name, int stock) {
-        return Map.of("name", name, "price", 9.95, "stock", stock, "categoryId", 2);
-    }
-
-    private int stock(long id, Account admin) throws Exception {
-        return node(request("GET", PRODUCTS + "/" + id, null, admin.accessToken(), 200))
-                .get("data").get("stock").asInt();
-    }
-
-    private JsonNode checkout(Account account, String key, int status) throws Exception {
-        var request = baseRequest(CHECKOUT, account.accessToken()).header("Idempotency-Key", key)
-                .POST(HttpRequest.BodyPublishers.noBody()).build();
-        return node(send(request, status)).get("data");
-    }
-
-    private HttpResponse<String> request(String method, String path, Object payload, String token, int status)
-            throws Exception {
-        var body = payload == null ? HttpRequest.BodyPublishers.noBody()
-                : HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload));
-        var request = baseRequest(path, token).method(method, body).build();
-        return send(request, status);
-    }
-
-    private HttpRequest.Builder baseRequest(String path, String token) {
-        var builder = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
-                .timeout(Duration.ofSeconds(10))
-                .header("Content-Type", "application/json");
-        if (token != null) {
-            builder.header("Authorization", "Bearer " + token);
-        }
-        return builder;
-    }
-
-    private HttpResponse<String> send(HttpRequest request, int status) throws Exception {
-        var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).as("%s %s: %s", request.method(), request.uri(), response.body())
-                .isEqualTo(status);
-        return response;
-    }
-
-    private JsonNode node(HttpResponse<String> response) {
-        return json.readTree(response.body());
-    }
-
-    private record Account(String username, String accessToken, String refreshToken) {
     }
 }
