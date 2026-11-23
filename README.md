@@ -250,7 +250,7 @@ Validation failures return `400`, missing or invalid authentication returns `401
 
 ## Tests
 
-Run `./gradlew test` with Java 25, an empty PostgreSQL test database, and Redis. Set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` for the test database. Redis defaults to localhost and the tests use logical database 15. CI provisions both services before running the suite.
+Run `./gradlew test` with Java 25, an empty PostgreSQL test database, and Redis. Set `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` for the test database. Redis defaults to localhost and the tests use logical database 15. CI provisions both services before running the suite. The suite combines Mockito unit tests for service rules (default addresses, password changes, checkout input) with `@SpringBootTest` integration tests that call the HTTP API against PostgreSQL and Redis. The integration tests cover checkout idempotency, stock limits and concurrency, order cancellation and shipping, addresses, profile and password changes, and access control including other users' resources. Tests create their own users and products, so the suite can be re-run against the same database.
 
 ## License
 
