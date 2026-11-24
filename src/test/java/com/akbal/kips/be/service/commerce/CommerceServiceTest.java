@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,21 +22,24 @@ class CommerceServiceTest {
     @Mock
     StaffAudit audit;
 
+    @Mock
+    ApplicationEventPublisher events;
+
     @Test
     void refusesCheckoutWhenLocalPaymentIsDisabled() {
-        var service = new CommerceService(jdbc, audit, false);
+        var service = new CommerceService(jdbc, audit, events, false);
 
         assertStatus(service, "key", HttpStatus.SERVICE_UNAVAILABLE);
-        verifyNoInteractions(jdbc);
+        verifyNoInteractions(jdbc, events);
     }
 
     @Test
     void rejectsBlankAndOversizedIdempotencyKeysBeforeTouchingTheDatabase() {
-        var service = new CommerceService(jdbc, audit, true);
+        var service = new CommerceService(jdbc, audit, events, true);
 
         assertStatus(service, " ", HttpStatus.BAD_REQUEST);
         assertStatus(service, "k".repeat(129), HttpStatus.BAD_REQUEST);
-        verifyNoInteractions(jdbc);
+        verifyNoInteractions(jdbc, events);
     }
 
     private void assertStatus(CommerceService service, String key, HttpStatus expected) {

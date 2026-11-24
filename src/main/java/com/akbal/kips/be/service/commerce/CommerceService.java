@@ -5,8 +5,10 @@ import com.akbal.kips.be.dto.commerce.CommerceDtos.Item;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.Order;
 import com.akbal.kips.be.dto.commerce.CommerceDtos.OrderSummary;
 import com.akbal.kips.be.security.Permissions;
+import com.akbal.kips.be.service.notification.OrderEvent;
 import com.akbal.kips.be.service.staff.StaffAudit;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -37,12 +39,14 @@ public class CommerceService {
 
     private final JdbcClient jdbc;
     private final StaffAudit audit;
+    private final ApplicationEventPublisher events;
     private final boolean localPaymentEnabled;
 
-    public CommerceService(JdbcClient jdbc, StaffAudit audit,
+    public CommerceService(JdbcClient jdbc, StaffAudit audit, ApplicationEventPublisher events,
             @Value("${checkout.local-test-enabled:false}") boolean localPaymentEnabled) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.events = events;
         this.localPaymentEnabled = localPaymentEnabled;
     }
 
@@ -131,6 +135,7 @@ public class CommerceService {
                     .param("quantity", item.quantity()).update();
         }
         jdbc.sql("DELETE FROM cart_item WHERE user_id = :user").param("user", userId).update();
+        events.publishEvent(new OrderEvent(OrderEvent.Type.CREATED, summary.id()));
         return new Order(summary, items);
     }
 
@@ -167,6 +172,7 @@ public class CommerceService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Unable to restore product stock");
             }
         }
+        events.publishEvent(new OrderEvent(OrderEvent.Type.CANCELLED, orderId));
         return new Order(cancelled, order.items());
     }
 
@@ -180,6 +186,7 @@ public class CommerceService {
             var previousStatus = summary.status();
             summary = changePaidOrderStatus(orderId, "SHIPPED");
             audit.record("ORDER_SHIPPED", "ORDER", orderId, previousStatus, summary.status(), null);
+            events.publishEvent(new OrderEvent(OrderEvent.Type.SHIPPED, orderId));
         }
         return readOrder(summary);
     }
